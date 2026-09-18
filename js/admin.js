@@ -11,6 +11,41 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.removeItem('obada_admin_access');
         window.location.href = 'index.html';
     });
+    const STATUS_SEQUENCE = [
+        "تم تجهيز الشحنة",
+        "في ميناء السعودية",
+        "في الطريق",
+        " في ميناء مصر",
+        "  في جمارك مصر",
+        "  في الطريق",
+        "وصل المستودع /"
+    ];
+    let currentShipmentData = null;
+
+    // التنظيف التلقائي للشحنات القديمة (أقدم من 3 أسابيع)
+    async function cleanupOldShipments() {
+        try {
+            const threeWeeksAgo = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: oldLogs, error: fetchError } = await supabaseClient
+                .from('shipment_logs')
+                .select('shipment_id')
+                .eq('status', 'وصل المستودع /')
+                .lt('created_at', threeWeeksAgo);
+            if (fetchError) throw fetchError;
+            if (oldLogs && oldLogs.length > 0) {
+                const idsToDelete = [...new Set(oldLogs.map(log => log.shipment_id))];
+                const { error: deleteError } = await supabaseClient
+                    .from('shipments')
+                    .delete()
+                    .in('id', idsToDelete);
+                if (deleteError) throw deleteError;
+                console.log(`تم حذف ${idsToDelete.length} شحنة قديمة بنجاح.`);
+            }
+        } catch (err) {
+            console.error('خطأ في التنظيف التلقائي:', err);
+        }
+    }
+    cleanupOldShipments();
 
     // --- قسم إضافة الشحنة ---
     const addForm = document.getElementById('add-shipment-form');
@@ -93,6 +128,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (error || !data) throw new Error('الشحنة غير موجودة');
 
+            currentShipmentData = data; // حفظ البيانات للمقارنة
+
             // تفعيل نموذج التحديث
             updateContainer.classList.remove('hidden', 'opacity-50', 'pointer-events-none');
             updateContainer.classList.add('block');
@@ -125,6 +162,21 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
 
         try {
+            // إضافة الحالات المتخطاة (إن وجدت) بناءً على التسلسل المنطقي
+            if (currentShipmentData && changeMainStatus) {
+                const lastIndex = STATUS_SEQUENCE.indexOf(currentShipmentData.current_status);
+                const newIndex = STATUS_SEQUENCE.indexOf(status);
+
+                if (lastIndex !== -1 && newIndex !== -1 && newIndex > lastIndex + 1) {
+                    for (let i = lastIndex + 1; i < newIndex; i++) {
+                        const missingStatus = STATUS_SEQUENCE[i];
+                        await supabaseClient
+                            .from('shipment_logs')
+                            .insert([{ shipment_id, status: missingStatus, location_name: '', notes: 'تحديث تلقائي للمسار' }]);
+                    }
+                }
+            }
+
             // 1. إضافة سجل
             const { error: logError } = await supabaseClient
                 .from('shipment_logs')
@@ -162,6 +214,45 @@ document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
         }
     });
+
+    const deleteShipmentBtn = document.getElementById('delete-shipment-btn');
+    if (deleteShipmentBtn) {
+        deleteShipmentBtn.addEventListener('click', async () => {
+            const shipment_id = updateShipmentId.value;
+            if (!shipment_id) return;
+            
+            if (!confirm('هل أنت متأكد من حذف هذه الشحنة نهائياً؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
+            
+            deleteShipmentBtn.disabled = true;
+            deleteShipmentBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> جاري الحذف...';
+            lucide.createIcons();
+            
+            try {
+                const { error } = await supabaseClient
+                    .from('shipments')
+                    .delete()
+                    .eq('id', shipment_id);
+                    
+                if (error) throw error;
+                
+                showMessage(updateMsg, 'تم حذف الشحنة بنجاح!', 'text-red-600');
+                setTimeout(() => {
+                    updateContainer.classList.add('hidden', 'opacity-50', 'pointer-events-none');
+                    updateContainer.classList.remove('block');
+                    searchInput.value = '';
+                    currentShipmentInfo.innerHTML = 'شحنة: ---';
+                    updateMsg.classList.add('hidden');
+                }, 3000);
+            } catch (err) {
+                console.error(err);
+                showMessage(updateMsg, 'حدث خطأ أثناء الحذف', 'text-red-600');
+            } finally {
+                deleteShipmentBtn.disabled = false;
+                deleteShipmentBtn.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i> حذف الشحنة نهائياً';
+                lucide.createIcons();
+            }
+        });
+    }
 
     // دالة مساعدة لإظهار الرسائل
     function showMessage(element, text, colorClass) {

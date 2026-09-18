@@ -43,3 +43,9 @@ CREATE POLICY "Allow public read access to shipment_logs"
 
 CREATE POLICY "Allow public insert to shipment_logs"
     ON shipment_logs FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Allow public delete to shipments"
+    ON shipments FOR DELETE USING (true);
+
+CREATE POLICY "Allow public delete to shipment_logs"
+    ON shipment_logs FOR DELETE USING (true);

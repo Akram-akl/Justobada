@@ -164,11 +164,12 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // إضافة الحالات المتخطاة (إن وجدت) بناءً على التسلسل المنطقي
             if (currentShipmentData && changeMainStatus) {
-                const lastIndex = STATUS_SEQUENCE.indexOf(currentShipmentData.current_status);
+                let lastIndex = STATUS_SEQUENCE.indexOf(currentShipmentData.current_status);
                 const newIndex = STATUS_SEQUENCE.indexOf(status);
 
-                if (lastIndex !== -1 && newIndex !== -1 && newIndex > lastIndex + 1) {
-                    for (let i = lastIndex + 1; i < newIndex; i++) {
+                if (newIndex !== -1 && newIndex > lastIndex + 1) {
+                    // إذا لم نجد الحالة السابقة (مثلاً كانت 'تم الاستلام')، سيبدأ lastIndex من -1، وهذا سيبدأ الدوران من 0
+                    for (let i = Math.max(0, lastIndex + 1); i < newIndex; i++) {
                         const missingStatus = STATUS_SEQUENCE[i];
                         await supabaseClient
                             .from('shipment_logs')
